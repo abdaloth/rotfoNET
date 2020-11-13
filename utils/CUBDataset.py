@@ -11,11 +11,7 @@ image_dim = 224
 class CUBDataset(Dataset):
     def __init__(self, datadir):
         """
-        Dataset of obfuscated coco images, with captions.
-        
-        annotations: load from pickle, akshay's processed annotations
-        datadir: Preprocessed data. Contains /originals and /masked
-        tranforms: function to be run on each sample
+        Dataset of obfuscated CUB images, with captions.
         """
         
         self.datadir = datadir
