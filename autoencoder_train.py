@@ -3,6 +3,7 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 from utils.CUBDataset import CUBDataset, image_dim
+from utils.CUBDataset_with_related_captions import CUBDataset_With_Related_Captions
 import autoencoder_models
 from torch.utils.data import DataLoader
 
@@ -63,7 +64,52 @@ def show_checkpoint_repros(model):
 # ----------
 #  Training
 # ----------
-  
+def train_similar_images(epochs, trainloader, batch_size, sample_interval, 
+            model, criterion, optimizer, checkpoint_pth):
+    for epoch in tqdm(range(0, epochs)):
+        for i, batch in enumerate(trainloader):
+            
+            model.train()
+            
+            full_imgs = batch['full_images'].cuda()
+            similar_images = batch['similar_images'].cuda()
+            
+            mask = batch['masks']
+            masked_imgs = full_imgs.detach().clone()
+            
+            masked_imgs[mask] = 1.0
+            
+            # Model takes a combination of similar images and masked
+            model_input = torch.cat([masked_imgs, similar_images], dim=1)
+            
+            optimizer.zero_grad()
+
+            # Generate a batch of images
+            gen_imgs = model(model_input)
+
+            gen_rois = gen_imgs[mask]
+            full_rois = full_imgs[mask]
+
+            recon_loss_full = criterion(gen_imgs, full_imgs)
+            recon_loss_roi = criterion(gen_rois, full_rois)
+            recon_loss = 0.1*recon_loss_full + 0.9*recon_loss_roi
+
+            recon_loss.backward()
+            optimizer.step()
+
+            batches_done = epoch * len(trainloader) + i
+            if batches_done % sample_interval == 0:
+                print(str(datetime.now()), "[Epoch %d/%d] [Batch %d/%d] [Recon Loss: %f]" % (epoch, epochs, i, len(trainloader), recon_loss.item()))
+                r_losses.append(recon_loss.item())
+                times.append(time.time())
+                show_checkpoint_repros(model)
+                torch.save(model.state_dict(), checkpoint_pth.format())
+
+        show_checkpoint_repros(model)
+        torch.save(model.state_dict(), f"./checkpoints/ConAE_stage2_epoch_{epoch}_{str(recon_loss.item())}.pth")
+
+
+
 def train(epochs, trainloader, batch_size, sample_interval, 
             model, criterion, optimizer, checkpoint_pth):
     for epoch in tqdm(range(epochs)):
@@ -118,9 +164,22 @@ if __name__ == "__main__":
     parser.add_argument("--loss_fn", type=float, default="MSELoss", help="the loss function")
     parser.add_argument("--num_workers", type=int, default=8, help="number of cpu threads to use during batch generation")
     parser.add_argument("--sample_interval", type=int, default=500, help="interval between image sampling")
+    parser.add_argument("--similar_images", type=bool, default=False, help="flag for type of model ")
+    parser.add_argument("--checkpoint_pth", type=str, default='./checkpoint.pth', help="checkpoint file name")
+    parser.add_argument("--embeddings", type=str, default="../corpus_embeddings.pickle", help="path to pickled caption embeddings")
+    parser.add_argument("--neighbours", type=str, default="../nearest_neighbors.pickle", help="path to pickled nearest neighbours")
+
     args = parser.parse_args()
 
-    dataset_train = CUBDataset(args.dataset_path)
+    if (args.similar_images):
+        dataset_train = CUBDataset_With_Related_Captions(args.dataset_path, 
+                                                        normalize=False, 
+                                                        embeddings_pickle=args.embeddings, 
+                                                        neighbors_pickle=args.neighbours)
+        pass
+    else:
+        dataset_train = CUBDataset(args.dataset_path)
+        pass
 
     trainloader = DataLoader(dataset_train,
                             batch_size=args.batch_size, 
@@ -144,6 +203,10 @@ if __name__ == "__main__":
 
     # Optimizers
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(args.b1, args.b2))
-
-    train(args.n_epochs, trainloader, args.batch_size, args.sample_interval, 
+    if (args.similar_images):
+        train_similar_images(args.n_epochs, trainloader, args.batch_size, args.sample_interval, 
             model, criterion, optimizer, args.checkpoint_pth)
+        pass
+    else:
+        train(args.n_epochs, trainloader, args.batch_size, args.sample_interval, 
+                model, criterion, optimizer, args.checkpoint_pth)
