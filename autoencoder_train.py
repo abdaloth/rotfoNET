@@ -12,6 +12,8 @@ import time
 from datetime import datetime
 from argparse import ArgumentParser
 from PIL import Image
+
+import numpy as np
 import matplotlib.pyplot as plt
 
 def PSNRLoss(original, inpainted): 
@@ -60,7 +62,57 @@ def show_checkpoint_repros(model):
         fig.tight_layout()
         plt.show()
 
+def show_checkpoint_repros_similar_images(model):
+    birb = Image.open("../../data/Vermilion_Flycatcher_0042_42266.jpg") # picture of a room from the validation set.
+    caption = "this bird has a red crown and flank as well as a black pointed bill and black tarsus." # I wrote a caption for it
+    birb = birb.convert("RGB")
+    birb = birb.resize((224,224))
 
+    tr = transforms.ToTensor()
+    birb_t = tr(birb)
+    x1 = 112-43
+    y1 = 112-43
+    x2 = x1 + 86
+    y2 = y1 + 86
+
+    mask = torch.zeros(3, image_dim,image_dim,dtype=torch.bool)
+    mask[:,y1:y2,x1:x2] = True
+    
+    masked = birb_t.detach().clone()
+    masked[mask] = 1
+    
+    similar_image_indices = np.asarray([92610, 22361, 47458]) // 10
+
+    similar_images = []
+    for i in similar_image_indices:
+        im = Image.open(image_filenames[i])
+        im = im.convert("RGB") # The occasional 1 channel grayscale image is in there.
+        im = image_transform(im)
+        similar_images.append(im)
+
+    similars = torch.cat(similar_images) # It's just 3 * num_related channels, e.g. 9x224x224
+
+    with torch.no_grad():
+        model.eval()
+        model_input = torch.cat([masked.unsqueeze(0), similars.unsqueeze(0)], dim=1)
+        recon_masked = model(model_input.cuda())
+
+        fig, (ax1, ax2, ax3, ax4, ax5, ax6) = plt.subplots(1,6, figsize=(18,4))
+        plt.suptitle(caption)
+        ax1.imshow(birb_t.permute(1,2,0))
+        ax1.set_title("original")
+        ax2.imshow(masked.permute(1,2,0))
+        ax2.set_title("masked")
+        ax3.imshow(similar_images[0].cpu().permute(1,2,0))
+        ax3.set_title("similar image 1")
+        ax4.imshow(similar_images[1].cpu().permute(1,2,0))
+        ax4.set_title("similar image 2")
+        ax5.imshow(similar_images[2].cpu().permute(1,2,0))
+        ax5.set_title("similar image 3")
+        ax6.imshow(recon_masked[0].cpu().permute(1,2,0))
+        ax6.set_title("reconstructed")
+        fig.tight_layout()
+        plt.show()
 # ----------
 #  Training
 # ----------
@@ -105,7 +157,7 @@ def train_similar_images(epochs, trainloader, batch_size, sample_interval,
                 show_checkpoint_repros(model)
                 torch.save(model.state_dict(), checkpoint_pth.format())
 
-        show_checkpoint_repros(model)
+        show_checkpoint_repros_similar_images(model)
         torch.save(model.state_dict(), f"./checkpoints/ConAE_stage2_epoch_{epoch}_{str(recon_loss.item())}.pth")
 
 
