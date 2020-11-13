@@ -133,7 +133,7 @@ def show_checkpoint_repros_similar_images(model):
 
 def save_sample(batches_done):
     # NOTE: hardcoded path, fix
-    birb = Image.open("../CUB_200_2011/Vermilion_Flycatcher_0042_42266.jpg") # picture of a room from the validation set.
+    birb = Image.open("../CUB_200_2011/Vermilion_Flycatcher_0042_42266.jpg") # picture from the validation set.
     birb = birb.convert("RGB")
 
     similar_image_indices = np.asarray([92610, 22361, 47458]) // 10
